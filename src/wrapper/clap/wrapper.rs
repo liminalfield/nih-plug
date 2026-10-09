@@ -44,7 +44,7 @@ use clap_sys::ext::render::{
     clap_plugin_render, clap_plugin_render_mode, CLAP_EXT_RENDER, CLAP_RENDER_OFFLINE,
     CLAP_RENDER_REALTIME,
 };
-use clap_sys::ext::state::{clap_plugin_state, CLAP_EXT_STATE};
+use clap_sys::ext::state::{clap_host_state, clap_plugin_state, CLAP_EXT_STATE};
 use clap_sys::ext::tail::{clap_plugin_tail, CLAP_EXT_TAIL};
 use clap_sys::ext::thread_check::{clap_host_thread_check, CLAP_EXT_THREAD_CHECK};
 use clap_sys::ext::voice_info::{
@@ -232,6 +232,7 @@ pub struct Wrapper<P: ClapPlugin> {
     clap_plugin_render: clap_plugin_render,
 
     clap_plugin_state: clap_plugin_state,
+    host_state: AtomicRefCell<Option<ClapPtr<clap_host_state>>>,
 
     clap_plugin_tail: clap_plugin_tail,
 
@@ -279,6 +280,8 @@ pub enum Task<P: Plugin> {
     VoiceInfoChanged,
     /// Tell the host that it should rescan the current parameter values.
     RescanParamValues,
+    /// Tell the host that the plugin's state changed and should be saved.
+    MarkStateDirty,
 }
 
 /// The types of CLAP parameter updates for events.
@@ -411,6 +414,13 @@ impl<P: ClapPlugin> MainThreadExecutor<Task<P>> for Wrapper<P> {
                     unsafe_clap_call! { host_voice_info=>changed(&*self.host_callback) };
                 }
                 None => nih_debug_assert_failure!("Host does not support the voice-info extension"),
+            },
+            Task::MarkStateDirty => match &*self.host_state.borrow() {
+                Some(host_state) => {
+                    nih_debug_assert!(is_gui_thread);
+                    unsafe_clap_call! { host_state=>mark_dirty(&*self.host_callback) };
+                }
+                None => nih_debug_assert_failure!("The host does not support the state extension"),
             },
             Task::RescanParamValues => match &*self.host_params.borrow() {
                 Some(host_params) => {
@@ -660,6 +670,7 @@ impl<P: ClapPlugin> Wrapper<P> {
                 save: Some(Self::ext_state_save),
                 load: Some(Self::ext_state_load),
             },
+            host_state: AtomicRefCell::new(None),
 
             clap_plugin_tail: clap_plugin_tail {
                 get: Some(Self::ext_tail_get),
@@ -1734,6 +1745,13 @@ impl<P: ClapPlugin> Wrapper<P> {
         nih_debug_assert!(task_posted, "The task queue is full, dropping task...");
     }
 
+    /// Tell the host that the plugin's state changed, from any thread. The host is told on the
+    /// main thread.
+    pub fn mark_state_dirty(&self) {
+        let task_posted = self.schedule_gui(Task::MarkStateDirty);
+        nih_debug_assert!(task_posted, "The task queue is full, dropping task...");
+    }
+
     pub fn set_latency_samples(&self, samples: u32) {
         // Only make a callback if it's actually needed
         // XXX: For CLAP we could move this handling to the Plugin struct, but it may be worthwhile
@@ -1847,6 +1865,8 @@ impl<P: ClapPlugin> Wrapper<P> {
             query_host_extension::<clap_host_latency>(&wrapper.host_callback, CLAP_EXT_LATENCY);
         *wrapper.host_params.borrow_mut() =
             query_host_extension::<clap_host_params>(&wrapper.host_callback, CLAP_EXT_PARAMS);
+        *wrapper.host_state.borrow_mut() =
+            query_host_extension::<clap_host_state>(&wrapper.host_callback, CLAP_EXT_STATE);
         *wrapper.host_voice_info.borrow_mut() = query_host_extension::<clap_host_voice_info>(
             &wrapper.host_callback,
             CLAP_EXT_VOICE_INFO,

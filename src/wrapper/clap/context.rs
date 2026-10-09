@@ -125,6 +125,10 @@ impl<P: ClapPlugin> ProcessContext<P> for WrapperProcessContext<'_, P> {
     fn set_current_voice_capacity(&self, capacity: u32) {
         self.wrapper.set_current_voice_capacity(capacity)
     }
+
+    fn mark_state_dirty(&self) {
+        self.wrapper.mark_state_dirty()
+    }
 }
 
 impl<P: ClapPlugin> GuiContext for WrapperGuiContext<P> {
