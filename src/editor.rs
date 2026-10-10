@@ -69,6 +69,20 @@ pub trait Editor: Send {
     /// loaded.
     fn param_values_changed(&self);
 
+    /// Whether the host may resize the editor's window. If this returns `true`, the host calls
+    /// [`set_size()`][Self::set_size()] with the new size, and [`size()`][Self::size()] should
+    /// return the latest accepted size. Defaults to `false`.
+    fn can_resize(&self) -> bool {
+        false
+    }
+
+    /// The host resized the editor's window to `width` by `height` logical pixels. Return `true`
+    /// to accept the size. Only called when [`can_resize()`][Self::can_resize()] returns `true`.
+    fn set_size(&self, width: u32, height: u32) -> bool {
+        let _ = (width, height);
+        false
+    }
+
     // TODO: Reconsider adding a tick function here for the Linux `IRunLoop`. To keep this platform
     //       and API agnostic, add a way to ask the GuiContext if the wrapper already provides a
     //       tick function. If it does not, then the Editor implementation must handle this by
